@@ -4,14 +4,14 @@ import numpy as np
 
 class OFDM:
     def __init__(self,K,P,CP,pilotValue):
-        self.K = K
-        self.CP = CP
-        self.pilotValue = pilotValue
-        self.total_Set = np.arange(K)
-        pilots = self.total_Set[::K//P]
+        self.K = K #total num subcarriers
+        self.CP = CP #cyclic prefix length
+        self.pilotValue = pilotValue #fixed pilot value
+        self.total_Set = np.arange(K) #[0, 1,2,.....63]
+        pilots = self.total_Set[::K//P] #pick every k/pth index as a pilot eg if k=64 and p=8 thats inndices [0,8,16,....56]
         self.pilots = np.append(pilots, self.total_Set[-1])
-        self.data_carriers = np.delete(self.total_Set, self.pilots)
-        self.P = P + 1
+        self.data_carriers = np.delete(self.total_Set, self.pilots)  #Delete the pilot values from the bins that are not supposed to be pilot bins
+        self.P = P + 1 #Store how many pilot bins we have or end up with
 
 
 class QAM_16:

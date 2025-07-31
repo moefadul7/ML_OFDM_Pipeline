@@ -8,20 +8,17 @@ from DL_DSSS.Loss import Loss
 from DL_DSSS.Datagen import Data
 from tensorflow.keras.optimizers import Adam, RMSprop
 
-def NN_setup(m_bits, k_bits, c_bits):
+def NN_setup(m_bits, k_bits, c_bits, learning_rate=0.001):
     # Create NN for Alice, Bob, & Eve
 
     alice = Models.Alice(m_bits, k_bits, c_bits)
     Alice_Model = alice.build_model()
-    # print(Alice_Model.summary())
 
     bob = Models.Bob(m_bits, k_bits, c_bits)
     Bob_Model = bob.build_model()
-    # print(Bob_Model.summary())
 
     eve = Models.Eve(m_bits, k_bits, c_bits)
     Eve_Model = eve.build_model()
-    # print(Eve_Model.summary())
 
     # Generate outputs of each model:
     alice_out = Alice_Model([alice.in1, alice.in2])
@@ -34,10 +31,10 @@ def NN_setup(m_bits, k_bits, c_bits):
     abeloss = bob_loss.loss + tf.math.square(m_bits / 2 - eve_loss.loss) / ((m_bits // 2) ** 2)
 
     # Learning optimizers:
-    abeoptim = RMSprop(learning_rate=0.001)
-    eveoptim = RMSprop(learning_rate=0.001)
+    abeoptim = Adam(learning_rate=learning_rate)
+    eveoptim = Adam(learning_rate=learning_rate)
 
-    # Create Macro models for alice-bib & alice-eve
+    # Create Macro models for alice-bob & alice-eve
     abmodel = Models.Macro([alice.in1, alice.in2], bob_out, 'abmodel', abeloss, abeoptim)
     abmodel.compile()
     Alice_Model.trainable = False
@@ -45,19 +42,20 @@ def NN_setup(m_bits, k_bits, c_bits):
     evemodel = Models.Macro([alice.in1, alice.in2], eve_out, 'evemodel', eve_loss.loss, eveoptim)
     evemodel.compile()
 
-    return Alice_Model, Bob_Model, Eve_Model, abmodel,evemodel
+    return Alice_Model, Bob_Model, Eve_Model, abmodel, evemodel
 
 
-def framework_train(m_bits,k_bits,n_batches,batch_size,n_epochs,Alice_Model, Bob_Model,abmodel,evemodel,abecycles,evecycles,n_samples, model_file):
-    ## Get Messages and Codes
-    data = Data(m_bits,k_bits)
+def framework_train(m_bits, k_bits, n_batches, batch_size, n_epochs, Alice_Model, Bob_Model, abmodel, evemodel, abecycles, evecycles, n_samples, model_file, learning_rate=0.001):
+    # Get Messages and Codes
+    data = Data(m_bits, k_bits)
     Messages = data.train_messages
     Codes = data.train_codes
 
-    ## Initialize training loop:
+    # Initialize training loop:
     epoch = 0
     Bob_Err = []
     Eve_Err = []
+
     while epoch < n_epochs:
         for iteration in range(n_batches):
             Alice_Model.trainable = True
@@ -66,12 +64,12 @@ def framework_train(m_bits,k_bits,n_batches,batch_size,n_epochs,Alice_Model, Bob
             # Train Alice-Bob
             for cycle in range(abecycles):
                 historyA = abmodel.model.train_on_batch([m_batch, k_batch], None)
-                print("Epoch {}, Iteration {}. Alice-Bob Loss is: {} \n".format(epoch, iteration, historyA))
+                print(f"Epoch {epoch}, Iteration {iteration}. Alice-Bob Loss is: {historyA}")
 
             Alice_Model.trainable = True
             for cycle in range(evecycles):
                 historyE = evemodel.model.train_on_batch([m_batch, k_batch], None)
-                print("Epoch {}, Iteration {}. Eve Loss is: {} \n".format(epoch, iteration, historyE))
+                print(f"Epoch {epoch}, Iteration {iteration}. Eve Loss is: {historyE}")
 
         Bob_Err.append(historyA)
         Eve_Err.append(historyE)
@@ -79,21 +77,18 @@ def framework_train(m_bits,k_bits,n_batches,batch_size,n_epochs,Alice_Model, Bob
         epoch += 1
 
     # Model Evaluation:
-    ## generate test data
     msg_tst, code_tst = data.create_test_data(n_samples)
 
-    ## model prediction
+    # Model prediction
     Bob_out = abmodel.model.predict([msg_tst, code_tst])
     Ber = Loss(msg_tst, Bob_out)
 
     # Display evaluation results:
-    print('Avg Ber of the test set: \n', Ber.loss.numpy())
+    print(f'Avg Ber of the test set: \n', Ber.loss.numpy())
 
     # Save the trained abmodel
     print("saving trained models ... \n")
     abmodel.model.save(model_file)
-    #Alice_Model.save('Alice.keras')
-    #Bob_Model.save('Bob.keras')
 
     print("Generating training evolution results ... \n")
 
@@ -106,5 +101,5 @@ def framework_train(m_bits,k_bits,n_batches,batch_size,n_epochs,Alice_Model, Bob
     ax.set_ylabel('Average Bit Error')
     plt.savefig('training_evolution.png')
     plt.show()
-    #print(Bob_Err)
-    #print(Eve_Err)
+
+    return Alice_Model, Bob_Model, abmodel, evemodel  # Return models after training

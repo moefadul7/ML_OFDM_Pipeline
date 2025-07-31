@@ -1,15 +1,11 @@
-########################################################################################################################
-########### This script is the main controller for DSSS coding/decoding as well as OFDM PHY Tx and Rx ##################
-########################################################################################################################
-############################# Author: Mohamed Fadul , Email: Mohammed-fadul@utc.edu ####################################
-########################################################################################################################
-####### Package Includes trained instances of Alice & Bob. You can switch the training on for  fresh models ############
-########################################################################################################################
-import sys, os
+#FZB297@mocs.utc.edu 
+import sys
+import os
 import numpy as np
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 import matplotlib.pyplot as plt
+
 from DL_DSSS.Alice import Alice_Load_Quantize
 from DL_DSSS.Bob import Bob_Load_Dequantize
 from DSSS_Train import NN_setup, framework_train
@@ -19,121 +15,214 @@ from Transmit_PHY_OFDM import Send_OFDM
 from Receive_PHY_OFDM import Recv_OFDM
 from bit_loader import Dump_Rcvd_stream
 from DL_DSSS.Loss import Loss
+import matplotlib.ticker as ticker 
 
-########################################################################################################################
+# ========================================================================
+# Parameter Setup
+# ========================================================================
 
-# Parameter Setup:
-
-# Set up the DSSS parameters: message, code, and spread signal
 m_bits = 16
-k_bits = 15
+k_bits = 16 ##Are these 15?
 c_bits = 16
 pad = 'same'
 
-# Compute the size of the message space, used later in training
-m_train = 2**(m_bits)
-
-# Training parameters:
-n_epoch = 1
-batch_size = 512
+m_train = 2 ** m_bits 
+n_epoch = 150  
+batch_size = 256
 n_batches = m_train // batch_size
-abecycles = 1
-evecycles = 2
+abecycles = 1 
+evecycles = 1  
 n_samples = 100
+Train = False    
 
-# Switch Training on to train a new instance or otherwise use the saved model
-Train = False
-
-# File containing the saved model
 model_file = 'Alice_Bob_Model.keras'
 
-
-
-# OFDM parameters:
-K = 64  # number of sub-carriers
-CP = 16  # length of the cyclic prefix
-P = 8  # number of pilot carriers
-pilotValue = 3+3j #pilot carrier value
-#SNR = 20  # DB
-
+K = 64
+CP = 16
+P = 8
+pilotValue = 3 + 3j
 With_Multipath = True
 
-# File including processed bit_stream at Tx by BYU
-# replace this with the processed file to be transmitted
 file_name_A = 'Alice_output_stream'
-
-# File including processed bit_stream at Rx by BYU
-# replace this with the processed file to be decoded by Bob
 file_name_B = 'Bob_input_stream'
 
-# Configurable variables that construct the action-vector in order:
-
-if (len(sys.argv) != 4):
-    print("""You need to provide 3 configurable parameters including \n Modulation per Carrier \n Q bits \n SNR""")
+if len(sys.argv) != 4:
+    print("You need to provide 3 configurable parameters:\n"
+          "1. Modulation per Carrier\n"
+          "2. Q bits\n"
+          "3. SNR")
     exit()
 
 Mod_Per_Carrier = sys.argv[1]
-
-# Number of Quantization bits
 num_bits = int(sys.argv[2])
+SNR_range = range(2, 26, 3)
 
-SNR = float(sys.argv[3])
+# Containers for results
+snr_values = []
+bler_values = []
+ber_values = []
 
-# Function to define the modulation type
+# ========================================================================
+# Helper Functions
+# ========================================================================
+
 def Mapping(scheme, D):
-    return eval(scheme + '(D)')
+    if scheme == "QPSK":
+        return QPSK(D)
+    elif scheme == "QAM_16":
+        return QAM_16(D)
+    elif scheme == "QAM_64":
+        return QAM_64(D)
+    else:
+        raise ValueError(f"Unsupported modulation scheme: {scheme}")
 
+def soft_thresholding(predictions, threshold=0.5, margin=0.1):
+    return np.where(predictions > (threshold + margin), 1,
+                    np.where(predictions < (threshold - margin), 0, predictions))
 
-
-
-########################################################################################################################
+# ========================================================================
+# Train Once
+# ========================================================================
 
 if Train:
-    # Setup Neural Networks for Alice, Bob, Eve
     Alice_Model, Bob_Model, Eve_Model, abmodel, evemodel = NN_setup(m_bits, k_bits, c_bits)
+    framework_train(m_bits, k_bits, n_batches, batch_size, n_epoch,
+                    Alice_Model, Bob_Model, abmodel, evemodel,
+                    abecycles, evecycles, n_samples, model_file)
 
-    # Joint Training of Alice, Bob, & Eve
-    framework_train(m_bits, k_bits, n_batches, batch_size, n_epoch, Alice_Model, Bob_Model, abmodel, evemodel,
-                        abecycles, evecycles, n_samples, model_file)
+# ========================================================================
+# Main Evaluation Loop
+# ========================================================================
+
+for SNR in SNR_range:
+    print(f"\n--- Running experiment for SNR = {SNR} dB ---")
+
+    # Alice quantization
+    Alice_out_quantized, Alice_out_stream, Alice_out, tst_msg, tst_key = Alice_Load_Quantize(
+        model_file, n_samples, num_bits
+    )
+
+    print(f"Shape of tst_msg: {tst_msg.shape}")
+    print(f"Shape of tst_key: {tst_key.shape}")
+
+    # OFDM setup and transmission
+    ofdm = OFDM(K, P, CP, pilotValue)
+    Mapper = Mapping(Mod_Per_Carrier, len(ofdm.data_carriers))
+    Tx_bit_stream, OFDM_CP = Send_OFDM(file_name_A, Mapper, ofdm)
+
+    print("Applying Wireless Channel Response ...")
+    channel = Channel(ofdm.K, SNR)
+    Received_Signals = Apply_Channel(OFDM_CP, channel, With_Multipath)
+
+    print("Collecting OFDM symbols by the receiver ...")
+    Rcv_bit_stream = Recv_OFDM(Received_Signals, ofdm, Mapper)
+
+    # BER calculation
+    ber_value, span = BER(Tx_bit_stream, Rcv_bit_stream)
+    print(f"BER for transmitted stream of length {len(Tx_bit_stream)}: {ber_value}")
+
+    # Dump received stream for Bob
+    Dump_Rcvd_stream(file_name_B, Rcv_bit_stream, span)
+
+    # Bob dequantization
+    Bob_in, Bob_out = Bob_Load_Dequantize(model_file, file_name_B, tst_key)
+    Bob_out_bin = np.where(Bob_out < 0.5, 0, 1)
+
+    # BLER calculation
+    Error_Per_Msg = np.where(np.sum(np.abs(tst_msg - Bob_out_bin), axis=1) > 0, 1, 0)
+    BLER = np.sum(Error_Per_Msg)
+    print(f"Total End-to-End BLER over {n_samples} messages: {BLER}")
+
+    # Save results
+    snr_values.append(SNR)
+    ber_values.append(ber_value)
+    bler_values.append(BLER)
+
+# ========================================================================
+# Plotting Results
+# ========================================================================
+
+# BER vs SNR
+plt.figure(figsize=(10, 6))
+plt.plot(snr_values, ber_values, marker='o', label='BER')
+plt.title('BER vs SNR')
+plt.xlabel('SNR (dB)')
+plt.ylabel('Bit Error Rate')
+plt.grid(True)
+plt.xticks(snr_values)
+plt.legend()
+plt.tight_layout()
+plt.savefig('ber_vs_snr.png')
+plt.show()
+
+# BLER vs SNR
+bler_rates = [b / n_samples for b in bler_values]
+plt.figure(figsize=(10, 6))
+plt.plot(snr_values, bler_rates, marker='o', color='red', label='BLER')
+plt.title('BLER vs SNR')
+plt.xlabel('SNR (dB)')
+plt.ylabel('Block Error Rate')
+plt.grid(True)
+plt.xticks(snr_values)
+plt.ylim(0, 1)
+plt.legend()
+plt.tight_layout()
+plt.savefig('bler_vs_snr.png')
+plt.show()
+
+# Log-scale BER vs SNR
+plt.figure(figsize=(10, 6))
+plt.semilogy(snr_values, ber_values, marker='o', label='BER')
+plt.title('BER vs SNR (log-scale)')
+plt.xlabel('SNR (dB)')
+plt.ylabel('Bit Error Rate (log scale)')
+plt.grid(which='both', linestyle='--', alpha=0.5)
+plt.xticks(snr_values)
+plt.legend()
+plt.tight_layout()
+plt.savefig('ber_vs_snr_log.png')
+plt.show()
+
+# Log-scale BLER vs SNR
+plt.figure(figsize=(10, 6))
+plt.semilogy(snr_values, bler_rates, marker='o', color='red', label='BLER')
+plt.title('BLER vs SNR (log-scale)')
+plt.xlabel('SNR (dB)')
+plt.ylabel('Block Error Rate (log scale)')
+plt.grid(which='both', linestyle='--', alpha=0.5)
+plt.xticks(snr_values)
+plt.legend()
+plt.tight_layout()
+plt.savefig('bler_vs_snr_log.png')
+plt.show()  
+
+import matplotlib.ticker as ticker
+
+plt.figure(figsize=(10, 6))
+
+# Prevent log(0)
+bler_rates_safe = [b if b > 0 else 1e-4 for b in bler_rates]
+
+plt.plot(snr_values, bler_rates_safe, marker='o', color='red', label='Offline-QPSK')
+plt.yscale('log')
+
+# Custom ticks (IEEE-style base-10 format)
+ax = plt.gca()
+ax.set_yticks([1e0, 1e-1, 1e-2, 1e-3, 1e-4])
+ax.get_yaxis().set_major_formatter(ticker.FuncFormatter(lambda y, _: f"$10^{{{int(np.log10(y))}}}$"))
+
+plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+plt.xlabel('SNR (dB)', fontsize=12)
+plt.ylabel('Block Error Rate (BLER)', fontsize=12)
+plt.title('BLER vs SNR (log scale)', fontsize=14)
+plt.xticks(snr_values) 
+plt.legend()
+plt.tight_layout()
+plt.savefig("bler_vs_snr_log_styled.png", dpi=300)
+plt.show()
 
 
-Alice_out_quantized, Alice_out_stream, Alice_out, tst_msg, tst_key = Alice_Load_Quantize(model_file, n_samples, num_bits)
 
-## Ghost Modulation Here
+  
+# Log-scale BLER vs SNR (styled to match IEEE paper format)
 
-# Create OFDM Object
-ofdm = OFDM(K, P, CP, pilotValue)
-
-# Set up a modulation object 'Mapper'
-Mapper = Mapping(Mod_Per_Carrier, len(ofdm.data_carriers))
-
-# Transmit OFDM symbols with payloads from 'file_name'
-Tx_bit_stream, OFDM_CP = Send_OFDM(file_name_A, Mapper, ofdm)
-
-# Apply wireless channel
-print('\n Applying Wireless Channel Response ...')
-channel = Channel(ofdm.K, SNR)
-Received_Signals = Apply_Channel(OFDM_CP, channel, With_Multipath)
-
-# Receive and process OFDM symbols
-Rcv_bit_stream = Recv_OFDM(Received_Signals, ofdm, Mapper)
-
-
-# BER calculation
-BER, span = BER(Tx_bit_stream, Rcv_bit_stream)
-print("\n BER for a transmitted bit stream of length %d is %.8f" % (len(Tx_bit_stream), BER))
-
-# save received bit stream
-Dump_Rcvd_stream(file_name_B, Rcv_bit_stream, span)
-
-## Ghost Demodulation Here ...
-
-# Extract and Dequantize DSSS encoded message at the receiver
-#Bob_in = Load_Bob_input(file_name_B, c_bits, num_bits, Mapper)
-Bob_in, Bob_out = Bob_Load_Dequantize(model_file, file_name_B, c_bits, num_bits, Mapper, tst_key)
-
-
-Total_Loss = Loss(tst_msg, Bob_out)
-Error_Per_Msg = np.where(np.sum(abs(tst_msg-Bob_out), axis = 1) > 0, 1, 0)
-BLER = np.sum(Error_Per_Msg)
-print('\n The total End-to-End BLER over {} messages is {:.6f}'.format(n_samples, BLER))

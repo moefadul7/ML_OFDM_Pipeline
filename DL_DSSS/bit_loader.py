@@ -1,29 +1,27 @@
-# Load bit from file
 import numpy as np
 
-bit_list = []
-bit_stream = ''
+def bit_stream_loader(file_name, k_bits, m_bits):
+    """
+    Loads the bit stream from a file and ensures the size is divisible by the symbol length.
+    Args:
+        file_name (str): The name of the file containing the bit stream.
+        k_bits (int): The number of bits for the first symbol.
+        m_bits (int): The number of bits for the second symbol.
 
+    Returns:
+        np.array: The bit stream loaded from the file, adjusted to the correct size.
+    """
+    # Load the bit stream from file
+    bit_stream = np.loadtxt(file_name, dtype=int)
 
+    # Make sure the length of the bit stream is divisible by the symbol length (k_bits * m_bits)
+    required_size = k_bits * m_bits
+    remainder = len(bit_stream) % required_size
+    if remainder != 0:
+        print(f"Warning: The size of input_stream ({len(bit_stream)}) is not divisible by {required_size}. Adjusting the size.")
+        bit_stream = bit_stream[:-remainder]  # Truncate excess data
 
-def bit_stream_loader(file_name):
-    bit_list = []
-    bit_stream = ''
-    # with open(file_name) as f:
-    #     lines = [z.replace('\n', '') for z in f.readlines()]
-    #     for x in lines:
-    #         line = []
-    #         y = x.split(' ')
-    #         digits = [int(digit) for digit in y]
-    #         bit_list.append(digits)
-    # bit_stream  = " ".join(lines)
-    with open(file_name) as f:
-        bit_stream = f.readlines()
-    #Tx_stream = bit_stream.replace(" ", "")
-    #Tx_bit_stream = np.array([int(bit) for bit in bit_stream])
-    Tx_bit_stream = np.array([int(bit) for bit in bit_stream[0]])
-    #return Tx_bit_stream, bit_stream, np.array(bit_list)
-    return Tx_bit_stream, bit_stream
+    return bit_stream
 
 def Dump_Rcvd_stream(file_name, Rcv_bit_stream, span):
     dump = ''
@@ -35,7 +33,11 @@ def Dump_Rcvd_stream(file_name, Rcv_bit_stream, span):
 
 if __name__ == '__main__':
     filename = 'test_messages'
-    bit_stream, bit_lst = bit_stream_loader(filename)
-    print('bit-list shape: {}'.format(np.array(bit_lst).shape))
-    print('bit-stream shape: {}'.format(len(bit_stream)))
+    
+    # You should define k_bits and m_bits according to your system
+    k_bits = 8  # Example value
+    m_bits = 8  # Example value
 
+    # Calling bit_stream_loader with k_bits and m_bits
+    bit_stream = bit_stream_loader(filename, k_bits, m_bits)
+    print('bit-stream shape: {}'.format(len(bit_stream)))
