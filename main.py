@@ -111,8 +111,16 @@ for SNR in SNR_range:
     Tx_bit_stream, OFDM_CP = Send_OFDM(file_name_A, Mapper, ofdm)
 
     print("Applying Wireless Channel Response ...")
-    channel = Channel(ofdm.K, SNR)
+    channel = Channel(ofdm.K, SNR) ##I beleive this might be the simulation of the sdr
     Received_Signals = Apply_Channel(OFDM_CP, channel, With_Multipath)
+    ##For testing purposes to examine the wifi signal issue:
+    ##Save true complex iqs for offline plots
+    ofdm_iq=np.asarray(OFDM_CP,dtype=np.complex64).ravel(order="C")
+    np.save("OFDM_CP.npy",ofdm_iq) ##Save complex symbols as.npy
+    ofdm_iq.tofile("Alice_output_stream") ##Complex64 to float 32(i,q,i,q)
+    print(f"[IQ DUMP] Wrote OFDM_CP.npy ({ofdm_iq.size} complex samples)"f"and Alice_out_stream (fc32 interleaved).")
+
+
 
     print("Collecting OFDM symbols by the receiver ...")
     Rcv_bit_stream = Recv_OFDM(Received_Signals, ofdm, Mapper)
@@ -226,3 +234,6 @@ plt.show()
   
 # Log-scale BLER vs SNR (styled to match IEEE paper format)
 
+
+
+	
