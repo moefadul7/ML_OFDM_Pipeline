@@ -254,3 +254,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+bits = get_bits_from_alice(args.alice_model, args.n_alice_samples, 16)
+np.save("tx_bits.npy", bits)
+print(f"Saved TX bits to tx_bits.npy (len={bits.size})")
