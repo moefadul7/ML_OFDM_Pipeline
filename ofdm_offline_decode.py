@@ -7,12 +7,12 @@ from Modulation.Modulation import OFDM  # uses your existing OFDM class
 K = 64
 CP = 16
 P = 8
-PILOTVAL = 1 + 0j
+PILOTVAL = 3 + 3j
 MU = 2  # QPSK: 2 bits/symbol
 
 # ---- SET THIS TO YOUR REAL SAMPLE RATE ----
-FS = 20e6  # Hz, e.g. 20 MHz for Wi-Fi-like channel (CHANGE IF NEEDED)
-
+FS = 5e6  # Hz, e.g. 20 MHz for Wi-Fi-like channel (CHANGE IF NEEDED)
+##changed to  5e6
 
 def qpsk_hard_demap(symbols):
     bits = np.zeros(symbols.size * 2, dtype=np.int8)

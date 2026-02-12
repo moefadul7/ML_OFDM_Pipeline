@@ -88,7 +88,7 @@ DEF_FS   = 5e6
 DEF_FC   = 915e6
 DEF_GAIN = 5
 K, CP, P = 64, 16, 8
-PILOTVAL = 1+0j
+PILOTVAL = 3+3j
 
 # ---------- helpers ----------
 def get_bits_from_alice(model_path: str, n_samples: int, num_bits: int = 16) -> np.ndarray:
